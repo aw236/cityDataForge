@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import glob
+import json
 from datetime import datetime, timezone
 
 
@@ -45,6 +46,9 @@ def print_dataset_info(df, dataset_name):
 def join_data():
     print("Starting data merging process...")
 
+    # Collect lineage data for visualization
+    lineage_data = []
+
     # Load datasets if they exist
     datasets = {}
 
@@ -54,6 +58,12 @@ def join_data():
         print("Loading ZCTA data...")
         datasets['zcta_data'] = pd.read_csv(zcta_file)
         print_dataset_info(datasets['zcta_data'], "zcta_data")
+        lineage_data.append({
+            'type': 'dataset',
+            'name': 'zcta_data',
+            'shape': datasets['zcta_data'].shape,
+            'columns': list(datasets['zcta_data'].columns)
+        })
     else:
         print("ZCTA data is required. Exiting.")
         return
@@ -64,6 +74,12 @@ def join_data():
         print("Loading ACS income data...")
         datasets['income_data'] = pd.read_csv(income_file)
         print_dataset_info(datasets['income_data'], "income_data")
+        lineage_data.append({
+            'type': 'dataset',
+            'name': 'income_data',
+            'shape': datasets['income_data'].shape,
+            'columns': list(datasets['income_data'].columns)
+        })
     else:
         print("ACS income data not found. Skipping.")
 
@@ -73,6 +89,12 @@ def join_data():
         print("Loading crime data...")
         datasets['crime_data'] = pd.read_csv(crime_file)
         print_dataset_info(datasets['crime_data'], "crime_data")
+        lineage_data.append({
+            'type': 'dataset',
+            'name': 'crime_data',
+            'shape': datasets['crime_data'].shape,
+            'columns': list(datasets['crime_data'].columns)
+        })
     else:
         print("Crime data not found. Skipping.")
 
@@ -82,6 +104,12 @@ def join_data():
         print("Loading sunlight data...")
         datasets['sunlight_data'] = pd.read_csv(sunlight_file)
         print_dataset_info(datasets['sunlight_data'], "sunlight_data")
+        lineage_data.append({
+            'type': 'dataset',
+            'name': 'sunlight_data',
+            'shape': datasets['sunlight_data'].shape,
+            'columns': list(datasets['sunlight_data'].columns)
+        })
     else:
         print("Sunlight data not found. Skipping.")
 
@@ -91,6 +119,12 @@ def join_data():
         print("Loading zip_zcta_xref data...")
         xref_data = pd.read_csv(xref_file)
         print_dataset_info(xref_data, "zip_zcta_xref")
+        lineage_data.append({
+            'type': 'dataset',
+            'name': 'zip_zcta_xref',
+            'shape': xref_data.shape,
+            'columns': list(xref_data.columns)
+        })
         # Check if required columns exist
         required_columns = ['zcta', 'zip', 'source']
         missing_columns = [col for col in required_columns if col not in xref_data.columns]
@@ -109,6 +143,12 @@ def join_data():
         print("Loading zcta_review data...")
         review_data = pd.read_csv(review_file)
         print_dataset_info(review_data, "zcta_review")
+        lineage_data.append({
+            'type': 'dataset',
+            'name': 'zcta_review',
+            'shape': review_data.shape,
+            'columns': list(review_data.columns)
+        })
         # Check if 'zcta' column exists
         if 'zcta' not in review_data.columns:
             print("Missing 'zcta' column in zcta_review.csv. Skipping merge.")
@@ -121,44 +161,133 @@ def join_data():
     print("Merging datasets...")
     merged_data = datasets['zcta_data']
     print(f"Initial shape of merged_data: {merged_data.shape}")
+    current_output = 'merged_data_1'
+    lineage_data.append({
+        'type': 'output',
+        'name': current_output,
+        'shape': merged_data.shape,
+        'columns': list(merged_data.columns)
+    })
 
     # Merge with zip_zcta_xref.csv on zcta
     if xref_data is not None:
         xref_subset = xref_data[['zcta', 'zip', 'source']]
-        print_merge_info(merged_data, xref_subset, "merged_data", "zip_zcta_xref")
+        print_merge_info(merged_data, xref_subset, current_output, "zip_zcta_xref")
         merged_data = merged_data.merge(xref_subset, on='zcta', how='left')
+        next_output = 'merged_data_2'
+        lineage_data.append({
+            'type': 'merge',
+            'input1': current_output,
+            'input2': 'zip_zcta_xref',
+            'join_key': 'zcta',
+            'output': next_output
+        })
+        lineage_data.append({
+            'type': 'output',
+            'name': next_output,
+            'shape': merged_data.shape,
+            'columns': list(merged_data.columns)
+        })
+        current_output = next_output
     else:
         print("Skipping merge with zip_zcta_xref due to missing data or columns.")
     print(f"Shape after zip_zcta_xref merge attempt: {merged_data.shape}")
 
     # Merge with zcta_review.csv on zcta
     if review_data is not None:
-        print_merge_info(merged_data, review_data, "merged_data", "zcta_review")
+        print_merge_info(merged_data, review_data, current_output, "zcta_review")
         merged_data = merged_data.merge(review_data, on='zcta', how='left')
+        next_output = 'merged_data_3'
+        lineage_data.append({
+            'type': 'merge',
+            'input1': current_output,
+            'input2': 'zcta_review',
+            'join_key': 'zcta',
+            'output': next_output
+        })
+        lineage_data.append({
+            'type': 'output',
+            'name': next_output,
+            'shape': merged_data.shape,
+            'columns': list(merged_data.columns)
+        })
+        current_output = next_output
     else:
         print("Skipping merge with zcta_review: review_data is None or 'zcta' column missing in zcta_review.csv.")
     print(f"Shape after zcta_review merge attempt: {merged_data.shape}")
 
     # Merge with other datasets
     if 'income_data' in datasets:
-        print_merge_info(merged_data, datasets['income_data'], "merged_data", "income_data")
+        print_merge_info(merged_data, datasets['income_data'], current_output, "income_data")
         merged_data = merged_data.merge(datasets['income_data'], on='zcta', how='left')
+        next_output = 'merged_data_4'
+        lineage_data.append({
+            'type': 'merge',
+            'input1': current_output,
+            'input2': 'income_data',
+            'join_key': 'zcta',
+            'output': next_output
+        })
+        lineage_data.append({
+            'type': 'output',
+            'name': next_output,
+            'shape': merged_data.shape,
+            'columns': list(merged_data.columns)
+        })
+        current_output = next_output
     else:
         print("Skipping merge with income_data: dataset not found.")
     print(f"Shape after income_data merge attempt: {merged_data.shape}")
 
     if 'crime_data' in datasets:
-        print_merge_info(merged_data, datasets['crime_data'], "merged_data", "crime_data")
+        print_merge_info(merged_data, datasets['crime_data'], current_output, "crime_data")
         merged_data = merged_data.merge(datasets['crime_data'], on='zcta', how='left')
+        next_output = 'merged_data_5'
+        lineage_data.append({
+            'type': 'merge',
+            'input1': current_output,
+            'input2': 'crime_data',
+            'join_key': 'zcta',
+            'output': next_output
+        })
+        lineage_data.append({
+            'type': 'output',
+            'name': next_output,
+            'shape': merged_data.shape,
+            'columns': list(merged_data.columns)
+        })
+        current_output = next_output
     else:
         print("Skipping merge with crime_data: dataset not found.")
     print(f"Shape after crime_data merge attempt: {merged_data.shape}")
 
     if 'sunlight_data' in datasets:
-        print_merge_info(merged_data, datasets['sunlight_data'], "merged_data", "sunlight_data")
+        print_merge_info(merged_data, datasets['sunlight_data'], current_output, "sunlight_data")
         merged_data = merged_data.merge(datasets['sunlight_data'], on='zcta', how='left')
+        next_output = 'merged_data_final'
+        lineage_data.append({
+            'type': 'merge',
+            'input1': current_output,
+            'input2': 'sunlight_data',
+            'join_key': 'zcta',
+            'output': next_output
+        })
+        lineage_data.append({
+            'type': 'output',
+            'name': next_output,
+            'shape': merged_data.shape,
+            'columns': list(merged_data.columns)
+        })
     else:
         print("Skipping merge with sunlight_data: dataset not found.")
+        # If sunlight_data is the last merge, set the final output name
+        next_output = 'merged_data_final'
+        lineage_data.append({
+            'type': 'output',
+            'name': next_output,
+            'shape': merged_data.shape,
+            'columns': list(merged_data.columns)
+        })
     print(f"Shape after sunlight_data merge attempt: {merged_data.shape}")
 
     # Create automated data folder if it doesn't exist
@@ -169,6 +298,12 @@ def join_data():
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     csv_filename = f"merged_data_{timestamp}.csv"
     csv_path = os.path.join(data_folder, csv_filename)
+
+    # Save lineage data to JSON
+    lineage_file = os.path.join(data_folder, f"join_lineage_{timestamp}.json")
+    with open(lineage_file, 'w') as f:
+        json.dump(lineage_data, f, indent=4)
+    print(f"Lineage data saved to: {lineage_file}")
 
     # Save merged data to CSV
     print(f"Saving merged data to: {os.path.abspath(csv_path)}")
