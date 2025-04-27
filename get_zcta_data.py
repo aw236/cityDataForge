@@ -28,7 +28,7 @@ def get_zcta_data():
     })
 
     # Create data folder if it doesn't exist
-    data_folder = "data"
+    data_folder = "automated data"
     os.makedirs(data_folder, exist_ok=True)
 
     # Generate CSV filename with UTC datetime
